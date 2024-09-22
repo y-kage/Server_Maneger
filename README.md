@@ -32,7 +32,7 @@ screen -r ServerManeger                 # app_mysql.pyを実行中
 screen -r ServerManeger_collect_data    # collect_gpu_data.pyを実行中
 ```
 
-```mysql -u root -p```を実行後に以下のコマンドなどでデータベースを確認可能
+```mysql -u root -p```を実行後に以下のコマンドなどでデータベースを確認可能.MySQLのパスワードはhvrlアカウントのパスワードと一緒．
 ```
 USE Server_GPU_Usage;
 SELECT * FROM gpu_usage WHERE host_name = 'DL-Box1';
