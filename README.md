@@ -37,3 +37,11 @@ screen -r ServerManeger_collect_data    # collect_gpu_data.pyを実行中
 USE Server_GPU_Usage;
 SELECT * FROM gpu_usage WHERE host_name = 'DL-Box1';
 ```
+データベースの容量
+```
+SELECT table_name AS "Table", 
+       ROUND((data_length + index_length) / 1024 / 1024, 2) AS "Size (MB)"
+FROM information_schema.tables
+WHERE table_schema = 'Server_GPU_Usage'
+ORDER BY (data_length + index_length) DESC;
+```
