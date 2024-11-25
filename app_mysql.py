@@ -35,7 +35,7 @@ def get_mysql_connection():
     return mysql.connector.connect(
         host="localhost",
         user="root",  # MySQLのユーザー名
-        password=,  # MySQLのパスワード
+        password="hvrl",  # MySQLのパスワード
         database="Server_GPU_Usage",  # データベース名
     )
 
@@ -56,10 +56,16 @@ def fetch_memory_usage(server_name):
     #     AND MOD(MINUTE(timestamp), 5) = 0
     #     ORDER BY timestamp;
     # """
+    # query = """
+    #     SELECT timestamp, gpu_index, gpu_name, memory_usage, memory_capacity
+    #     FROM gpu_usage
+    #     WHERE host_name = %s AND timestamp >= NOW() - INTERVAL 24 HOUR
+    #     ORDER BY timestamp;
+    # """
     query = """
         SELECT timestamp, gpu_index, gpu_name, memory_usage, memory_capacity
         FROM gpu_usage
-        WHERE host_name = %s AND timestamp >= NOW() - INTERVAL 24 HOUR
+        WHERE host_name = %s AND timestamp >= NOW() - INTERVAL 1 YEAR
         ORDER BY timestamp;
     """
     df = pd.read_sql(query, connection, params=(server_name,))
@@ -91,7 +97,7 @@ def plot_memory_usage(df, save_path):
             label=_label,
         )
 
-    plt.title(f"Memory Usage Ratio Over Last Hour for All GPUs")
+    plt.title(f"Memory Usage Ratio for All GPUs")
     plt.xlabel("Time")
     plt.ylabel("Memory Usage Ratio (%)")
     plt.xticks(rotation=45)
@@ -103,6 +109,62 @@ def plot_memory_usage(df, save_path):
     plt.close()  # グラフを閉じる
     # plt.show()
 
+def fetch_gpu_temp(server_name):
+    connection = get_mysql_connection_for_pandas()
+    # query = """
+    #     SELECT timestamp, gpu_index, gpu_name, memory_usage, memory_capacity
+    #     FROM gpu_usage
+    #     WHERE host_name = %s AND timestamp >= NOW() - INTERVAL 3 HOUR
+    #     AND MOD(MINUTE(timestamp), 5) = 0
+    #     ORDER BY timestamp;
+    # """
+    # query = """
+    #     SELECT timestamp, gpu_index, gpu_name, memory_usage, memory_capacity
+    #     FROM gpu_usage
+    #     WHERE host_name = %s AND timestamp >= NOW() - INTERVAL 24 HOUR
+    #     ORDER BY timestamp;
+    # """
+    query = """
+        SELECT timestamp, gpu_index, gpu_name, temperature
+        FROM gpu_usage
+        WHERE host_name = %s AND timestamp >= NOW() - INTERVAL 3 MONTH
+        ORDER BY timestamp;
+    """
+    df = pd.read_sql(query, connection, params=(server_name,))
+    # connection.close()
+    return df
+
+def plot_gpu_temp(df, save_path):
+    plt.figure(figsize=(10, 5))
+
+    # GPUごとに異なる色でプロット
+    unique_gpus = df["gpu_index"].unique()
+    colors = plt.cm.get_cmap("Set2", len(unique_gpus))  # 色のマップを取得
+
+    for i, gpu in enumerate(unique_gpus):
+        gpu_data = df[df["gpu_index"] == gpu]
+        gpu_name = gpu_data["gpu_name"].iloc[0]
+        _label = f"{gpu}: {gpu_name}"
+
+        plt.plot(
+            gpu_data["timestamp"],
+            gpu_data["temperature"],
+            marker="o",
+            linestyle="-",
+            color=colors(i),
+            label=_label,
+        )
+
+    plt.title(f"Temperature for All GPUs")
+    plt.xlabel("Time")
+    plt.ylabel("Temperature (°C)")
+    plt.xticks(rotation=45)
+    plt.ylim([10, 110])
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
+    plt.savefig(save_path)  # 画像を保存
+    plt.close()
 
 # SSH経由でnvidia-smiを実行して結果を取得する関数
 def execute_nvidia_smi(Name, hostip, username, password):
@@ -116,6 +178,14 @@ def execute_nvidia_smi(Name, hostip, username, password):
         stdin, stdout, stderr = client.exec_command(command)
         result = stdout.read().decode("utf-8").strip()
         client.close()
+
+        result_str = "\n".join(result.split("\n")).lower()  # 小文字に変換して検索
+        if "fail" in result_str:
+            raise Exception(f"Command output contains 'fail' for {Name}")
+        if "error" in result_str:
+            raise Exception(f"Command output contains 'error' for {Name}")
+        if "detected" in result_str:
+            raise Exception(f"Command output contains 'no gpu detected' for {Name}")
 
         return {
             "Name": Name,
@@ -212,6 +282,7 @@ def status():
 
             # グラフを生成して画像として保存
             memory_usage_df = fetch_memory_usage(result["Name"])  # GPU名を指定
+            # print(memory_usage_df)
             if not memory_usage_df.empty:
 
                 # server_name = "example_server"  # サーバー名を適宜取得
@@ -223,6 +294,23 @@ def status():
 
                 # HTMLに画像を追加
                 html_content += f"<img src='/{save_path}' alt='Memory Usage Graph for {result['Name']}' /><br>"
+            else:
+                print(f"No Memory Usage graph: {result["Name"]}")
+            
+            temperature_df = fetch_gpu_temp(result["Name"])
+            if not temperature_df.empty:
+
+                # server_name = "example_server"  # サーバー名を適宜取得
+                timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+                file_name = f"{timestamp}-{result['Name']}"
+                # file_path = os.path.join(static_dir, file_name)
+                save_path = f"static/{file_name}_temperature.png"
+                plot_gpu_temp(temperature_df, save_path)
+
+                # HTMLに画像を追加
+                html_content += f"<img src='/{save_path}' alt='GPU Temperature Graph for {result['Name']}' /><br>"
+            else:
+                print(f"No Temperature graph: {result["Name"]}")
 
     return html_content
 
