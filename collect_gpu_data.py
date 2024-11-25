@@ -21,7 +21,7 @@ def get_mysql_connection():
     return mysql.connector.connect(
         host="localhost",
         user="root",  # MySQLのユーザー名
-        password=,  # MySQLのパスワード
+        password="hvrl",  # MySQLのパスワード
         database="Server_GPU_Usage",  # データベース名
     )
 
@@ -101,6 +101,14 @@ def execute_nvidia_smi_csv(Name, hostip, username, password):
         result = stdout.read().decode("utf-8").strip()
         result = result.split("\n")
         client.close()
+
+        result_str = "\n".join(result).lower()  # 小文字に変換して検索
+        if "fail" in result_str:
+            raise Exception(f"Command output contains 'fail' for {Name}")
+        if "error" in result_str:
+            raise Exception(f"Command output contains 'error' for {Name}")
+        if "detected" in result_str:
+            raise Exception(f"Command output contains 'no gpu detected' for {Name}")
 
         return {
             "Name": Name,
