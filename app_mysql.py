@@ -35,7 +35,7 @@ def get_mysql_connection():
     return mysql.connector.connect(
         host="localhost",
         user="root",  # MySQLのユーザー名
-        password="hvrl",  # MySQLのパスワード
+        password="",  # MySQLのパスワード
         database="Server_GPU_Usage",  # データベース名
     )
 
@@ -109,6 +109,7 @@ def plot_memory_usage(df, save_path):
     plt.close()  # グラフを閉じる
     # plt.show()
 
+
 def fetch_gpu_temp(server_name):
     connection = get_mysql_connection_for_pandas()
     # query = """
@@ -133,6 +134,7 @@ def fetch_gpu_temp(server_name):
     df = pd.read_sql(query, connection, params=(server_name,))
     # connection.close()
     return df
+
 
 def plot_gpu_temp(df, save_path):
     plt.figure(figsize=(10, 5))
@@ -166,6 +168,7 @@ def plot_gpu_temp(df, save_path):
     plt.savefig(save_path)  # 画像を保存
     plt.close()
 
+
 # SSH経由でnvidia-smiを実行して結果を取得する関数
 def execute_nvidia_smi(Name, hostip, username, password):
     try:
@@ -190,7 +193,43 @@ def execute_nvidia_smi(Name, hostip, username, password):
         return {
             "Name": Name,
             "hostip": hostip,
-            "nvidia_smi_output": result,
+            "output": result,
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        print(f"Error connecting to {hostip}: {e}")
+        return {
+            "Name": Name,
+            "hostip": hostip,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+        }
+
+
+# SSH経由でnvidia-smiを実行して結果を取得する関数
+def execute_df(Name, hostip, username, password):
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(hostip, username=username, password=password)
+
+        command = "df -h"
+        stdin, stdout, stderr = client.exec_command(command)
+        result = stdout.read().decode("utf-8").strip()
+        client.close()
+
+        result_str = "\n".join(result.split("\n")).lower()  # 小文字に変換して検索
+        if "fail" in result_str:
+            raise Exception(f"Command output contains 'fail' for {Name}")
+        if "error" in result_str:
+            raise Exception(f"Command output contains 'error' for {Name}")
+        if "detected" in result_str:
+            raise Exception(f"Command output contains 'no gpu detected' for {Name}")
+
+        return {
+            "Name": Name,
+            "hostip": hostip,
+            "output": result,
             "timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
@@ -210,6 +249,24 @@ def get_all_gpu_status():
         futures = [
             executor.submit(
                 execute_nvidia_smi,
+                srv["Name"],
+                srv["hostip"],
+                srv["username"],
+                srv["password"],
+            )
+            for srv in servers
+        ]
+        for future in futures:
+            results.append(future.result())
+    return results
+
+
+def get_all_storage():
+    results = []
+    with ThreadPoolExecutor(max_workers=len(servers)) as executor:
+        futures = [
+            executor.submit(
+                execute_df,
                 srv["Name"],
                 srv["hostip"],
                 srv["username"],
@@ -268,49 +325,58 @@ def status():
             if current_time - file_mtime > one_hour_in_seconds:
                 os.remove(file_path)  # ファイルを削除
 
-    results = get_all_gpu_status()
+    results_gpu = get_all_gpu_status()
+    results_df = get_all_storage()
 
     html_content = "<h1>GPU Status of Multiple Servers</h1>"
-    for result in results:
+    for i in range(len(results_gpu)):
+        result = results_gpu[i]
+        server_name = result["Name"]
+        html_content += f"<h2>{result['Name']}: {result['hostip']}</h2>"
         if "error" in result:
-            html_content += f"<h2>{result['Name']}: {result['hostip']}</h2>"
             html_content += f"<p style='color:red;'>Error: {result['error']}</p>"
         else:
-            html_content += f"<h2>{result['Name']}: {result['hostip']}</h2>"
-            html_content += f"<pre>{result['nvidia_smi_output']}</pre>"
+            html_content += f"<pre>{result['output']}</pre>"
+            # html_content += f"<p>Last Update: {result['timestamp']}</p>"
+
+        result = results_df[i]
+        if "error" in result:
+            html_content += f"<p style='color:red;'>Error: {result['error']}</p>"
+        else:
+            html_content += f"<pre>{result['output']}</pre>"
             html_content += f"<p>Last Update: {result['timestamp']}</p>"
 
-            # グラフを生成して画像として保存
-            memory_usage_df = fetch_memory_usage(result["Name"])  # GPU名を指定
-            # print(memory_usage_df)
-            if not memory_usage_df.empty:
+        # グラフを生成して画像として保存
+        memory_usage_df = fetch_memory_usage(server_name)  # GPU名を指定
+        # print(memory_usage_df)
+        if not memory_usage_df.empty:
 
-                # server_name = "example_server"  # サーバー名を適宜取得
-                timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-                file_name = f"{timestamp}-{result['Name']}"
-                # file_path = os.path.join(static_dir, file_name)
-                save_path = f"static/{file_name}_memory_usage.png"
-                plot_memory_usage(memory_usage_df, save_path)
+            # server_name = "example_server"  # サーバー名を適宜取得
+            timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+            file_name = f"{timestamp}-{server_name}"
+            # file_path = os.path.join(static_dir, file_name)
+            save_path = f"static/{file_name}_memory_usage.png"
+            plot_memory_usage(memory_usage_df, save_path)
 
-                # HTMLに画像を追加
-                html_content += f"<img src='/{save_path}' alt='Memory Usage Graph for {result['Name']}' /><br>"
-            else:
-                print(f"No Memory Usage graph: {result["Name"]}")
-            
-            temperature_df = fetch_gpu_temp(result["Name"])
-            if not temperature_df.empty:
+            # HTMLに画像を追加
+            html_content += f"<img src='/{save_path}' alt='Memory Usage Graph for {server_name}' /><br>"
+        else:
+            print(f"No Memory Usage graph: {server_name}")
 
-                # server_name = "example_server"  # サーバー名を適宜取得
-                timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-                file_name = f"{timestamp}-{result['Name']}"
-                # file_path = os.path.join(static_dir, file_name)
-                save_path = f"static/{file_name}_temperature.png"
-                plot_gpu_temp(temperature_df, save_path)
+        temperature_df = fetch_gpu_temp(server_name)
+        if not temperature_df.empty:
 
-                # HTMLに画像を追加
-                html_content += f"<img src='/{save_path}' alt='GPU Temperature Graph for {result['Name']}' /><br>"
-            else:
-                print(f"No Temperature graph: {result["Name"]}")
+            # server_name = "example_server"  # サーバー名を適宜取得
+            timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+            file_name = f"{timestamp}-{server_name}"
+            # file_path = os.path.join(static_dir, file_name)
+            save_path = f"static/{file_name}_temperature.png"
+            plot_gpu_temp(temperature_df, save_path)
+
+            # HTMLに画像を追加
+            html_content += f"<img src='/{save_path}' alt='GPU Temperature Graph for {server_name}' /><br>"
+        else:
+            print(f"No Temperature graph: {server_name}")
 
     return html_content
 
