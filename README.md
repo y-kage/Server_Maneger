@@ -18,7 +18,7 @@ mysql -u root -p < server_gpu_database.sql
 gunicorn --bind 0.0.0.0:8000 app_mysql:app
 
 ＃collect_gpu_data.pyを実行
-python3 collect_gpu_data.py
+python collect_gpu_data.py
 
 # mysqlを実行
 mysql -u root -p
