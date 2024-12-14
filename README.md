@@ -45,3 +45,22 @@ FROM information_schema.tables
 WHERE table_schema = 'Server_GPU_Usage'
 ORDER BY (data_length + index_length) DESC;
 ```
+
+# 外部からもアクセスできるようにする
+[localtunnel](https://github.com/localtunnel/localtunnel)を使用し，外部からも見れるようにする．
+## Install
+権限の問題があるので以下の方法で権限なしで実行
+```bash
+mkdir -p ~/.npm-global
+npm config set prefix '~/.npm-global'
+export PATH=~/.npm-global/bin:$PATH
+source ~/.bashrc
+npm install -g localtunnel
+```
+
+## Usage
+```bash
+# 8000はapp_mysql.pyのportと同じ
+lt --port 8000
+```
+これを実行して表示されたURLと```https://loca.lt/mytunnelpassword```を開いて表示されたパスワードを使用することで外部から見れるようになる．
