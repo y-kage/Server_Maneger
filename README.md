@@ -47,6 +47,7 @@ ORDER BY (data_length + index_length) DESC;
 ```
 
 # 外部からもアクセスできるようにする
+サーバーのセキュリティを考え，現在は実行してないです．
 [localtunnel](https://github.com/localtunnel/localtunnel)を使用し，外部からも見れるようにする．
 ## Install
 権限の問題があるので以下の方法で権限なしで実行
