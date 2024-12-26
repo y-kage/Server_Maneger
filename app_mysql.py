@@ -35,7 +35,7 @@ def get_mysql_connection():
     return mysql.connector.connect(
         host="localhost",
         user="root",  # MySQLのユーザー名
-        password="",  # MySQLのパスワード
+        password="hvrl",  # MySQLのパスワード
         database="Server_GPU_Usage",  # データベース名
     )
 
